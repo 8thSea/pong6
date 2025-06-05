@@ -76,8 +76,8 @@
     const ballRadius   = 10;
     const baseSpeed    = 5;
 
-    // Ball speed scaling over time
-    const maxSpeedMultiplier   = 2;       // ball maxes out at 2× base speed
+    // Ball speed scaling over time (50 % faster after 5 min)
+    const maxSpeedMultiplier   = 1.5;     // 1 → 1.5 × base speed
     const speedIncreaseDuration = 300000; // 5 minutes to reach max speed
 
     const leftPaddle  = { x: 20, y: 0, dy: 0 };
@@ -96,7 +96,7 @@
 
     // ---------- Setup helpers ----------
     function resetPositions(direction = 1) {
-      paddleHeight = paddleHeightInitial; // in case of restart
+      paddleHeight = paddleHeightInitial; // on restart
       leftPaddle.y  = canvas.height / 2 - paddleHeight / 2;
       rightPaddle.x = canvas.width - 20 - paddleWidth;
       rightPaddle.y = canvas.height / 2 - paddleHeight / 2;
@@ -224,68 +224,4 @@
       updateAI();
 
       // Move ball
-      ball.x += ball.dx;
-      ball.y += ball.dy;
-
-      // Add tail particle
-      tail.push({ x: ball.x, y: ball.y });
-      if (tail.length > tailMax) tail.shift();
-
-      // Wall collisions
-      if (ball.y - ballRadius < 0 || ball.y + ballRadius > canvas.height) {
-        ball.dy *= -1;
-        beep(600);
-      }
-
-      // Paddle collisions
-      if (paddleCollision(leftPaddle)) {
-        ball.dx = Math.abs(ball.dx);
-        beep(880);
-      }
-      if (paddleCollision(rightPaddle)) {
-        ball.dx = -Math.abs(ball.dx);
-        beep(880);
-      }
-
-      // Scoring
-      if (ball.x < 0) {
-        rightScore++;
-        beep(220);
-        drawScores();
-        resetBall(1);
-      }
-      if (ball.x > canvas.width) {
-        leftScore++;
-        beep(220);
-        drawScores();
-        resetBall(-1);
-      }
-
-      // Draw everything
-      drawNet();
-      drawPaddle(leftPaddle, '#0ff');
-      drawPaddle(rightPaddle, '#f0f');
-      drawTail();
-      drawBall();
-
-      requestAnimationFrame(gameLoop);
-    }
-
-    // ---------- Start game on click/touch ----------
-    function startGame() {
-      unlockAudio();
-      if (!running) {
-        running = true;
-        gameStartTime = Date.now();
-        leftScore = rightScore = 0;
-        resetPositions(Math.random() > 0.5 ? 1 : -1);
-        drawScores();
-        gameLoop();
-      }
-    }
-
-    canvas.addEventListener('click', startGame);
-    canvas.addEventListener('touchstart', startGame);
-  </script>
-</body>
-</html>
+      ball.x += ball
