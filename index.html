@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Space Pong Neon Edition</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #000; font-family: monospace; display: flex; justify-content: center; align-items: center; }
+    canvas { border: 2px solid #0ff; border-radius: 12px; max-width: 100vw; height: auto; }
+    #overlay { position: absolute; top: 0; left: 0; width: 100%; color: #0ff; text-align: center; padding: 8px 0; font-size: 1.2rem; text-shadow: 0 0 6px #0ff; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div id="overlay">Click to start</div>
+  <canvas id="game" width="800" height="600"></canvas>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+
+    // ---------- Utility helpers ----------
+    const randomRange = (min, max) => Math.random() * (max - min) + min;
+
+    // ---------- Audio setup ----------
+    let audioCtx, gain;
+    function beep(freq = 440, duration = 0.05) {
+      if (!audioCtx) return; // audio unlocked yet?
+      const osc = audioCtx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    }
+
+    function unlockAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    // ---------- Starfield background ----------
+    const stars = Array.from({ length: 150 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 1.5 + 0.5,
+      s: Math.random() * 0.3 + 0.1,
+    }));
+
+    function drawStars() {
+      ctx.save();
+      ctx.fillStyle = '#fff';
+      stars.forEach(star => {
+        star.y += star.s;
+        if (star.y > canvas.height) {
+          star.y = 0;
+          star.x = Math.random() * canvas.width;
+        }
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+
+    // ---------- Game objects ----------
+    const paddleWidth = 15;
+    const paddleHeight = 100;
+    const ballRadius = 10;
+    const speed = 5;
+
+    const leftPaddle = { x: 20, y: canvas.height / 2 - paddleHeight / 2, dy: 0 };
+    const rightPaddle = { x: canvas.width - 20 - paddleWidth, y: canvas.height / 2 - paddleHeight / 2 };
+
+    const ball = { x: canvas.width / 2, y: canvas.height / 2, dx: speed * (Math.random() > 0.5 ? 1 : -1), dy: speed * (Math.random() * 2 - 1) };
+
+    let leftScore = 0, rightScore = 0;
+
+    // ---------- Input ----------
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+    window.addEventListener('keyup',   e => keys[e.key.toLowerCase()] = false);
+
+    // ---------- AI ----------
+    function updateAI() {
+      const center = rightPaddle.y + paddleHeight / 2;
+      if (center < ball.y - 10) {
+        rightPaddle.y += speed * 0.9;
+      } else if (center > ball.y + 10) {
+        rightPaddle.y -= speed * 0.9;
+      }
+      rightPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, rightPaddle.y));
+    }
+
+    // ---------- Collision detection ----------
+    function paddleCollision(p) {
+      return ball.x - ballRadius < p.x + paddleWidth &&
+             ball.x + ballRadius > p.x &&
+             ball.y + ballRadius > p.y &&
+             ball.y - ballRadius < p.y + paddleHeight;
+    }
+
+    function resetBall(direction = 1) {
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      ball.dx = speed * direction;
+      ball.dy = speed * (Math.random() * 2 - 1);
+    }
+
+    // ---------- Drawing helpers ----------
+    function drawPaddle(p, color) {
+      ctx.save();
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = color;
+      ctx.fillStyle = color;
+      ctx.fillRect(p.x, p.y, paddleWidth, paddleHeight);
+      ctx.restore();
+    }
+
+    function drawBall() {
+      ctx.save();
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = '#fff';
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ballRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawNet() {
+      ctx.save();
+      ctx.strokeStyle = '#0ff';
+      ctx.setLineDash([5, 15]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(canvas.width / 2, 0);
+      ctx.lineTo(canvas.width / 2, canvas.height);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawScores() {
+      overlay.innerHTML = `${leftScore}  –  ${rightScore}`;
+    }
+
+    // ---------- Game loop ----------
+    let running = false;
+    function gameLoop() {
+      if (!running) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawStars();
+      // Move paddles
+      if (keys['w']) leftPaddle.y -= speed;
+      if (keys['s']) leftPaddle.y += speed;
+      leftPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, leftPaddle.y));
+      updateAI();
+      // Move ball
+      ball.x += ball.dx;
+      ball.y += ball.dy;
+      // Wall collisions
+      if (ball.y - ballRadius < 0 || ball.y + ballRadius > canvas.height) {
+        ball.dy *= -1;
+        beep(600);
+      }
+      // Paddle collisions
+      if (paddleCollision(leftPaddle)) {
+        ball.dx = Math.abs(ball.dx);
+        ball.dy += leftPaddle.dy * 0.3;
+        beep(880);
+      }
+      if (paddleCollision(rightPaddle)) {
+        ball.dx = -Math.abs(ball.dx);
+        beep(880);
+      }
+      // Scoring
+      if (ball.x < 0) {
+        rightScore++;
+        beep(220);
+        drawScores();
+        resetBall(1);
+      }
+      if (ball.x > canvas.width) {
+        leftScore++;
+        beep(220);
+        drawScores();
+        resetBall(-1);
+      }
+      // Draw
+      drawNet();
+      drawPaddle(leftPaddle, '#0ff');
+      drawPaddle(rightPaddle, '#f0f');
+      drawBall();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ---------- Start game on click/touch ----------
+    function startGame() {
+      unlockAudio();
+      if (!running) {
+        running = true;
+        overlay.innerHTML = `${leftScore}  –  ${rightScore}`;
+        gameLoop();
+      }
+    }
+    canvas.addEventListener('click', startGame);
+    canvas.addEventListener('touchstart', startGame);
+  </script>
+</body>
+</html>
