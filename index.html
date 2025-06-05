@@ -23,9 +23,9 @@
     const randomRange = (min, max) => Math.random() * (max - min) + min;
 
     // ---------- Audio setup ----------
-    let audioCtx, gain;
+    let audioCtx;
     function beep(freq = 440, duration = 0.05) {
-      if (!audioCtx) return; // audio unlocked yet?
+      if (!audioCtx) return; // audio not unlocked yet
       const osc = audioCtx.createOscillator();
       osc.type = 'square';
       osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
@@ -66,18 +66,47 @@
       ctx.restore();
     }
 
-    // ---------- Game objects ----------
+    // ---------- Game objects & constants ----------
     const paddleWidth = 15;
-    const paddleHeight = 100;
-    const ballRadius = 10;
-    const speed = 5;
+    const paddleHeightInitial = 100;
+    let paddleHeight = paddleHeightInitial;
+    const minPaddleHeight = 40;           // smallest size after shrink
+    const shrinkDuration  = 300000;       // 5 minutes in ms
 
-    const leftPaddle = { x: 20, y: canvas.height / 2 - paddleHeight / 2, dy: 0 };
-    const rightPaddle = { x: canvas.width - 20 - paddleWidth, y: canvas.height / 2 - paddleHeight / 2 };
+    const ballRadius   = 10;
+    const baseSpeed    = 5;
 
-    const ball = { x: canvas.width / 2, y: canvas.height / 2, dx: speed * (Math.random() > 0.5 ? 1 : -1), dy: speed * (Math.random() * 2 - 1) };
+    // Ball speed scaling over time
+    const maxSpeedMultiplier   = 2;       // ball maxes out at 2× base speed
+    const speedIncreaseDuration = 300000; // 5 minutes to reach max speed
 
-    let leftScore = 0, rightScore = 0;
+    const leftPaddle  = { x: 20, y: 0, dy: 0 };
+    const rightPaddle = { x: 0, y: 0 };
+    const ball        = { x: 0, y: 0, dx: 0, dy: 0 };
+
+    let leftScore = 0,
+        rightScore = 0;
+
+    // ---------- Tail particles ----------
+    const tail      = [];
+    const tailMax   = 25;
+
+    // ---------- Timing ----------
+    let gameStartTime = null;
+
+    // ---------- Setup helpers ----------
+    function resetPositions(direction = 1) {
+      paddleHeight = paddleHeightInitial; // in case of restart
+      leftPaddle.y  = canvas.height / 2 - paddleHeight / 2;
+      rightPaddle.x = canvas.width - 20 - paddleWidth;
+      rightPaddle.y = canvas.height / 2 - paddleHeight / 2;
+      ball.x = canvas.width / 2;
+      ball.y = canvas.height / 2;
+      const angle = randomRange(-0.3, 0.3); // slight random vertical
+      ball.dx = baseSpeed * direction * Math.cos(angle);
+      ball.dy = baseSpeed * Math.sin(angle);
+      tail.length = 0;
+    }
 
     // ---------- Input ----------
     const keys = {};
@@ -88,9 +117,9 @@
     function updateAI() {
       const center = rightPaddle.y + paddleHeight / 2;
       if (center < ball.y - 10) {
-        rightPaddle.y += speed * 0.9;
+        rightPaddle.y += baseSpeed * 0.9;
       } else if (center > ball.y + 10) {
-        rightPaddle.y -= speed * 0.9;
+        rightPaddle.y -= baseSpeed * 0.9;
       }
       rightPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, rightPaddle.y));
     }
@@ -104,10 +133,7 @@
     }
 
     function resetBall(direction = 1) {
-      ball.x = canvas.width / 2;
-      ball.y = canvas.height / 2;
-      ball.dx = speed * direction;
-      ball.dy = speed * (Math.random() * 2 - 1);
+      resetPositions(direction);
     }
 
     // ---------- Drawing helpers ----------
@@ -118,6 +144,23 @@
       ctx.fillStyle = color;
       ctx.fillRect(p.x, p.y, paddleWidth, paddleHeight);
       ctx.restore();
+    }
+
+    function drawTail() {
+      ctx.save();
+      for (let i = 0; i < tail.length; i++) {
+        const t = i / tail.length; // 0 = oldest
+        const p = tail[i];
+        ctx.globalAlpha = t * 0.7;
+        ctx.shadowBlur = 25 * (1 - t);
+        ctx.shadowColor = '#fff';
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, ballRadius * (1 - t * 0.5), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
     function drawBall() {
@@ -151,31 +194,59 @@
     let running = false;
     function gameLoop() {
       if (!running) return;
+
+      const now     = Date.now();
+      const elapsed = now - gameStartTime;
+
+      // Paddle shrink over time
+      const shrinkFactor = Math.min(1, elapsed / shrinkDuration);
+      paddleHeight = paddleHeightInitial - (paddleHeightInitial - minPaddleHeight) * shrinkFactor;
+
+      // Ball speed increase over time
+      const speedFactor   = 1 + Math.min(1, elapsed / speedIncreaseDuration) * (maxSpeedMultiplier - 1);
+      const currentSpeed  = Math.hypot(ball.dx, ball.dy);
+      const desiredSpeed  = baseSpeed * speedFactor;
+      if (currentSpeed !== 0 && Math.abs(currentSpeed - desiredSpeed) > 0.01) {
+        const scale = desiredSpeed / currentSpeed;
+        ball.dx *= scale;
+        ball.dy *= scale;
+      }
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawStars();
-      // Move paddles
-      if (keys['w']) leftPaddle.y -= speed;
-      if (keys['s']) leftPaddle.y += speed;
+
+      // Move paddles (player)
+      if (keys['w']) leftPaddle.y -= baseSpeed;
+      if (keys['s']) leftPaddle.y += baseSpeed;
       leftPaddle.y = Math.max(0, Math.min(canvas.height - paddleHeight, leftPaddle.y));
+
+      // AI paddle
       updateAI();
+
       // Move ball
       ball.x += ball.dx;
       ball.y += ball.dy;
+
+      // Add tail particle
+      tail.push({ x: ball.x, y: ball.y });
+      if (tail.length > tailMax) tail.shift();
+
       // Wall collisions
       if (ball.y - ballRadius < 0 || ball.y + ballRadius > canvas.height) {
         ball.dy *= -1;
         beep(600);
       }
+
       // Paddle collisions
       if (paddleCollision(leftPaddle)) {
         ball.dx = Math.abs(ball.dx);
-        ball.dy += leftPaddle.dy * 0.3;
         beep(880);
       }
       if (paddleCollision(rightPaddle)) {
         ball.dx = -Math.abs(ball.dx);
         beep(880);
       }
+
       // Scoring
       if (ball.x < 0) {
         rightScore++;
@@ -189,11 +260,14 @@
         drawScores();
         resetBall(-1);
       }
-      // Draw
+
+      // Draw everything
       drawNet();
       drawPaddle(leftPaddle, '#0ff');
       drawPaddle(rightPaddle, '#f0f');
+      drawTail();
       drawBall();
+
       requestAnimationFrame(gameLoop);
     }
 
@@ -202,10 +276,14 @@
       unlockAudio();
       if (!running) {
         running = true;
-        overlay.innerHTML = `${leftScore}  –  ${rightScore}`;
+        gameStartTime = Date.now();
+        leftScore = rightScore = 0;
+        resetPositions(Math.random() > 0.5 ? 1 : -1);
+        drawScores();
         gameLoop();
       }
     }
+
     canvas.addEventListener('click', startGame);
     canvas.addEventListener('touchstart', startGame);
   </script>
